@@ -2,15 +2,12 @@ import scrapy
 import json
 import time
 import jwt
+from urllib.parse import urlencode
 
 class ProductsSpider(scrapy.Spider):
     name = "ProductsSpider"
     cookies = {}
     login_url = 'https://peapi.servimed.com.br/api/usuario/login'
-    login_payload = {
-        "usuario": "juliano@farmaprevonline.com.br",
-        "senha": "a007299A"
-    }
     scrap_url = 'https://peapi.servimed.com.br/api/carrinho/oculto?siteVersion=4.0.27'
     scrap_payload = {"filtro": "",
                      "pagina": 1,
@@ -36,6 +33,17 @@ class ProductsSpider(scrapy.Spider):
                      "list": True}
     scrap_cookies = {}
     headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    login_callback_payload = {"username":"rodrigodasilva4", "password":"teste1234"}
+
+    def __init__(self, usuario=None, senha=None,callback_url=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not usuario or not senha or not callback_url:
+            raise ValueError("Usuario, senha e callback_url são obrigatórios")
+        self.login_payload = {
+            "usuario": usuario,
+            "senha": senha
+        }
+        self.callback_url = callback_url
 
     def start_requests(self):
         self.logger.info("Iniciando login")
@@ -99,33 +107,72 @@ class ProductsSpider(scrapy.Spider):
             headers=self.headers,
             cookies=self.cookies,
             callback=self.parse,
-            cb_kwargs={'pagina': pagina}
+            meta={'pagina': pagina}
         )
 
-    def parse(self, response, pagina):
+    def parse(self, response):
+        pagina = response.meta.get('pagina')
         try:
             data = json.loads(response.text)
+            if isinstance(data, dict):
+                produtos = data.get('lista', [])
+            elif isinstance(data, list):
+                produtos = data
         except json.JSONDecodeError as e:
             self.logger.error(f"Erro ao decodificar JSON na página {pagina}: {e}")
             return
-        produtos = data.get('lista', [])
 
         if not produtos:
             self.logger.info(f"Nenhum produto encontrado na página {pagina}. Finalizando spider.")
             return
-
+        callback_payload = []
         for produto in produtos:
-            try:
-                yield {
-                    'gtin': produto.get('codigoBarras'),
-                    'cod': produto.get('codigoExterno'),
-                    'desc': f"{produto.get('descricao')} - {produto.get('fabricanteNome')}",
-                    'preco': round(float(produto.get('valorBase', 0)), 2),
-                    'estoque': produto.get('quantidadeEstoque')
-                }
-            except Exception as e:
-                self.logger.warning(f"Erro ao processar produto {produto.get('codigoExterno')}: {e}")
-
+            callback_payload.append({
+                "gtin": str(produto.get('codigoBarras')),
+                "codigo": str(produto.get('codigoExterno')),
+                "descricao": f"{produto.get('descricao')} - {produto.get('fabricanteNome')}",
+                "preco_fabrica": round(float(produto.get('valorBase', 0)), 2),
+                "estoque": produto.get('quantidadeEstoque', 0)
+            })
+            
+        self.logger.info("Iniciando login no callback")
+        yield scrapy.Request(
+            self.callback_url + '/oauth/token',
+            method='POST',
+            body=urlencode(self.login_callback_payload),
+            callback=self.after_login_callback,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json"
+            },
+            meta={'handle_httpstatus_list': [400],
+                  'callback_payload': callback_payload}
+        )
+            
         # Próxima página
-        yield self.build_request(pagina + 1)
-        
+        if pagina is not None:
+            yield self.build_request(pagina + 1)
+            
+    def after_login_callback(self, response):
+        callback_payload = response.meta.get('callback_payload')
+        try:
+            if response.status == 400:
+                self.logger.error("Erro no login do callback: usuário ou senha inválidos")
+                return
+            else:
+                self.logger.info("Login no callback realizado com sucesso")
+
+            headers = {}
+            headers['Authorization'] = f"Bearer {response.json().get('access_token', '')}"
+            # Enviar payload para o callback
+            self.logger.info("Enviando payload ao callback")
+            yield scrapy.Request(
+                self.callback_url + '/produto',
+                method='POST',
+                body=json.dumps(callback_payload),
+                headers=headers,
+                meta={'handle_httpstatus_list': [201]}
+            )
+        except Exception as e:
+            self.logger.exception(f"Erro no after_login_callback: {e}")
+

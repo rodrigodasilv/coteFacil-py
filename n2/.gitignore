@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+env/
+venv/
+ENV/
+
+# Scrapy
+*.json
