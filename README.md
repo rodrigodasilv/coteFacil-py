@@ -1,39 +1,41 @@
-# Desafio Scrapy N1
+# Desafio Scrapy N2
 
-Este projeto é um **spider Scrapy** que faz login em um sistema, acessa a listagem de produtos e extrai informações específicas de cada produto.
 
----
+### Este projeto usa Scrapy para coleta de produtos e RQ (Redis Queue) para execução assíncrona.
+### As execuções dos spiders não são chamadas diretamente, mas sim enfileiradas através de um endpoint HTTP.
+
 
 ## Instalação
 
 1. Clonar o repositório:
 ```
 git clone https://github.com/rodrigodasilv/coteFacil-py.git
-git checkout n1
+git checkout n2
 ```
 2. Instale as dependências:
 ```
 pip install -r requirements.txt
 ```
-3. Executar o spider:
+3. Subir o banco de dados Redis e a API feita com flask:
 ```
-scrapy crawl ProductsSpider -o produtos.json
+docker compose up --build
 ```
-Este comando irá executar o spider e gerar um arquivo produtos.json com a lista de produtos extraídos.
+4. Iniciar um worker (Utilizar Linux ou WSL)
+```
+rq worker
+```
 
 ## Funcionalidades
 
-- Realiza login no site via API.
+- Recebe informações de usuario, senha e callback_url na API
+- Enfileira os processos com Redis Queue 
+- Posteriormente, o worker realiza login no site via dados recebidos anteriormente pela API.
 - Captura cookies e token JWT para autenticação.
 - Consulta a listagem de produtos página por página.
-- Extrai os seguintes campos de cada produto:
-- - `gtin`: Código de barras (EAN)
-- - `cod`: Código externo do produto
-- - `desc`: Descrição completa do produto (descrição + fabricante)
-- - `preco`: Valor base do produto
-- - `estoque`: Quantidade em estoque
-- Logging detalhado durante a execução, incluindo erros de login, processamento de cookies e parsing de JSON.
+- Faz login na callback_url e cadastra o produto no endpoint /produto.
 
 ## Observações
 
-Certifique-se de atualizar o login_payload com credenciais válidas.
+Certifique-se de que o usuario e senha que serão enfileirados são credenciais válidas.
+O worker precisa estar rodando para processar as tasks.
+O Redis deve estar acessível no mesmo host/rede em que o worker será executado.
