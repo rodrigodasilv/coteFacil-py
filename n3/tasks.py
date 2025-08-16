@@ -7,7 +7,9 @@ def run_spider(job):
     usuario = job["usuario"]
     senha = job["senha"]
     callback_url = job["callback_url"]
+    id_pedido = job["id_pedido"]
+    produtos = job["produtos"]
 
     process = CrawlerProcess()
-    process.crawl(ProductsSpider, usuario=usuario, senha=senha, callback_url=callback_url)
+    process.crawl(ProductsSpider, usuario=usuario, senha=senha, callback_url=callback_url, id_pedido=id_pedido, produtosIn=produtos)
     process.start()
